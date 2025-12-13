@@ -1,6 +1,11 @@
+const RATE_LIMIT = {};
+const MAX_REQUESTS = 20;        // max requests
+const WINDOW_MS = 60 * 1000;    // per 1 minute
+
 export default async function handler(req, res) {
   // --- CORS ---
-  res.setHeader("Access-Control-Allow-Origin", "*");
+   const allowedOrigin = "https://6e13f7-7f.myshopify.com";
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
@@ -11,6 +16,21 @@ export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+  
+  const ip =
+  req.headers["x-forwarded-for"]?.split(",")[0] ||
+  req.socket.remoteAddress ||
+  "unknown";
+
+  const now = Date.now();
+  RATE_LIMIT[ip] = RATE_LIMIT[ip] || [];
+  RATE_LIMIT[ip] = RATE_LIMIT[ip].filter(t => now - t < WINDOW_MS);
+
+  if (RATE_LIMIT[ip].length >= MAX_REQUESTS) {
+  return res.status(429).json({ error: "Too many requests" });
+  }
+
+RATE_LIMIT[ip].push(now);
 
   const input = (req.body?.input || "").trim();
   if (!input) {
