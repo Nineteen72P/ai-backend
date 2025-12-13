@@ -28,7 +28,8 @@ export default async function handler(req, res) {
 
   RATE_LIMIT[ip].push(now);
 
-  const prompt = (req.body?.input || "").trim();
+  const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+const prompt = (body?.input || "").trim();
   if (!prompt) {
     return res.status(400).json({ error: "Missing prompt" });
   }
