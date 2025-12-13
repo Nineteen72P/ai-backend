@@ -32,23 +32,21 @@ export default async function handler(req, res) {
 
 RATE_LIMIT[ip].push(now);
 
-  const input = (req.body?.input || "").trim();
-  if (!input) {
-    return res.status(400).json({ error: "Missing input" });
-  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 15000); // 15s timeout
 
-  try {
-    const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1-mini",
-        input
-      })
-    });
+  const response = await fetch("https://api.openai.com/v1/responses", {
+  method: "POST",
+  signal: controller.signal,
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+  },
+  body: JSON.stringify({
+    model: "gpt-4o-mini",
+    input
+  })
+  });
 
     const data = await openaiResponse.json();
 
