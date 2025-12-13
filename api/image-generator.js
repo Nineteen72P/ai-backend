@@ -69,7 +69,7 @@ export default async function handler(req, res) {
       console.error("OPENAI IMAGE ERROR:", data);
       return res.status(500).json({
         error: "OpenAI image error",
-        details: data
+        openai: data
       });
     }
 
