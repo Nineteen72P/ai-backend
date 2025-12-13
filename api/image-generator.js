@@ -65,13 +65,11 @@ export default async function handler(req, res) {
 
     const data = await openaiResponse.json();
 
-    if (!openaiResponse.ok) {
-      console.error("OPENAI IMAGE ERROR:", data);
-      return res.status(500).json({
-        error: "OpenAI image error",
-        openai: data
-      });
-    }
+  if (!openaiResponse.ok) {
+  console.error("OPENAI IMAGE ERROR:", data);
+  return res.status(openaiResponse.status).json(data);
+}
+
 
     let imageBase64 = null;
 
