@@ -1,0 +1,76 @@
+const RATE_LIMIT = {};
+const MAX_REQUESTS = 10;        // images are expensive
+const WINDOW_MS = 60 * 1000;
+
+export default async function handler(req, res) {
+  // --- CORS ---
+  const allowedOrigin = "https://6e13f7-7f.myshopify.com";
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // --- RATE LIMIT ---
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0] ||
+    req.socket.remoteAddress ||
+    "unknown";
+
+  const now = Date.now();
+  RATE_LIMIT[ip] = RATE_LIMIT[ip] || [];
+  RATE_LIMIT[ip] = RATE_LIMIT[ip].filter(t => now - t < WINDOW_MS);
+
+  if (RATE_LIMIT[ip].length >= MAX_REQUESTS) {
+    return res.status(429).json({ error: "Too many requests" });
+  }
+
+  RATE_LIMIT[ip].push(now);
+
+  const prompt = (req.body?.input || "").trim();
+  if (!prompt) {
+    return res.status(400).json({ error: "Missing prompt" });
+  }
+
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 20000);
+
+    const openaiResponse = await fetch(
+      "https://api.openai.com/v1/images/generations",
+      {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "gpt-image-1",
+          prompt,
+          size: "1024x1024"
+        })
+      }
+    );
+
+    const data = await openaiResponse.json();
+
+    if (!openaiResponse.ok) {
+      return res.status(500).json({
+        error: "OpenAI image error",
+        details: data
+      });
+    }
+
+    const imageUrl = data?.data?.[0]?.url;
+    if (!imageUrl) {
+      return res.status(500).json({ error: "No image returned" });
+    }
+
+    return res.status(200).json({ image: imageUrl });
+  } catch (err) {
+    console.error("IMAGE SERVER ERROR:", err);
+    return res.status(500).json({ error: "Server crash" });
+  }
+}
