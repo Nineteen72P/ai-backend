@@ -1,5 +1,5 @@
 const RATE_LIMIT = {};
-const MAX_REQUESTS = 10;        // images are expensive
+const MAX_REQUESTS = 10;
 const WINDOW_MS = 60 * 1000;
 
 export default async function handler(req, res) {
@@ -46,21 +46,20 @@ export default async function handler(req, res) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
         },
-       body: JSON.stringify({
-  model: "gpt-image-1",
-  input: [
-    {
-      role: "user",
-      content: [
-        {
-          type: "input_text",
-          text: prompt
-        }
-      ]
-    }
-  ]
-})
-
+        body: JSON.stringify({
+          model: "gpt-image-1",
+          input: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: prompt
+                }
+              ]
+            }
+          ]
+        })
       }
     );
 
@@ -74,7 +73,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // Extract image
     let imageBase64 = null;
 
     for (const item of data.output || []) {
@@ -103,4 +101,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Server crash" });
   }
 }
+
 
