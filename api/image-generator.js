@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     setTimeout(() => controller.abort(), 20000);
 
     const openaiResponse = await fetch(
-      "https://api.openai.com/v1/images/generations",
+      "https://api.openai.com/v1/responses",
       {
         method: "POST",
         signal: controller.signal,
@@ -48,8 +48,7 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: "gpt-image-1",
-          prompt,
-          size: "1024x1024"
+          input: prompt
         })
       }
     );
@@ -57,20 +56,40 @@ export default async function handler(req, res) {
     const data = await openaiResponse.json();
 
     if (!openaiResponse.ok) {
+      console.error("OPENAI IMAGE ERROR:", data);
       return res.status(500).json({
         error: "OpenAI image error",
         details: data
       });
     }
 
-    const imageUrl = data?.data?.[0]?.url;
-    if (!imageUrl) {
-      return res.status(500).json({ error: "No image returned" });
+    // Extract image
+    let imageBase64 = null;
+
+    for (const item of data.output || []) {
+      for (const block of item.content || []) {
+        if (block.type === "output_image" && block.image_base64) {
+          imageBase64 = block.image_base64;
+          break;
+        }
+      }
+      if (imageBase64) break;
     }
 
-    return res.status(200).json({ image: imageUrl });
+    if (!imageBase64) {
+      return res.status(500).json({
+        error: "No image returned",
+        raw: data
+      });
+    }
+
+    return res.status(200).json({
+      image: `data:image/png;base64,${imageBase64}`
+    });
+
   } catch (err) {
     console.error("IMAGE SERVER ERROR:", err);
     return res.status(500).json({ error: "Server crash" });
   }
 }
+
