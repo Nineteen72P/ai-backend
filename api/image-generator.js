@@ -28,61 +28,39 @@ export default async function handler(req, res) {
 
   RATE_LIMIT[ip].push(now);
 
+  // --- BODY PARSE ---
   const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-const prompt = (body?.input || "").trim();
+  const prompt = (body?.input || "").trim();
+
   if (!prompt) {
     return res.status(400).json({ error: "Missing prompt" });
   }
 
   try {
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(), 20000);
-
     const openaiResponse = await fetch(
-      "https://api.openai.com/v1/responses",
+      "https://api.openai.com/v1/images/generations",
       {
         method: "POST",
-        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
         },
         body: JSON.stringify({
           model: "gpt-image-1",
-          input: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: prompt
-                }
-              ]
-            }
-          ]
+          prompt: prompt,
+          size: "1024x1024"
         })
       }
     );
 
     const data = await openaiResponse.json();
 
-  if (!openaiResponse.ok) {
-  console.error("OPENAI IMAGE ERROR:", data);
-  return res.status(openaiResponse.status).json(data);
-}
-
-
-    let imageBase64 = null;
-
-    for (const item of data.output || []) {
-      for (const block of item.content || []) {
-        if (block.type === "output_image" && block.image_base64) {
-          imageBase64 = block.image_base64;
-          break;
-        }
-      }
-      if (imageBase64) break;
+    if (!openaiResponse.ok) {
+      console.error("OPENAI IMAGE ERROR:", data);
+      return res.status(openaiResponse.status).json(data);
     }
+
+    const imageBase64 = data?.data?.[0]?.b64_json;
 
     if (!imageBase64) {
       return res.status(500).json({
