@@ -4,7 +4,7 @@ const WINDOW_MS = 60 * 1000;    // 1 minute
 
 export default async function handler(req, res) {
   // --- CORS ---
-  const allowedOrigin = "https://6e13f7-7f.myshopify.com";
+  const allowedOrigin = "https://mayti.org";
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
