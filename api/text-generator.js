@@ -3,9 +3,10 @@ const MAX_REQUESTS = 20;        // max requests per window
 const WINDOW_MS = 60 * 1000;    // 1 minute
 
 export default async function handler(req, res) {
-  // --- CORS ---
-  const allowedOrigin = "https://mayti.org";
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  /* ===============================
+     CORS (FIXED)
+  =============================== */
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
@@ -17,7 +18,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // --- RATE LIMIT ---
+  /* ===============================
+     RATE LIMIT
+  =============================== */
   const ip =
     req.headers["x-forwarded-for"]?.split(",")[0] ||
     req.socket.remoteAddress ||
@@ -33,18 +36,24 @@ export default async function handler(req, res) {
 
   RATE_LIMIT[ip].push(now);
 
-  // --- INPUT ---
+  /* ===============================
+     INPUT
+  =============================== */
   const input = (req.body?.input || "").trim();
   if (!input) {
     return res.status(400).json({ error: "Missing input" });
   }
 
   try {
-    // --- TIMEOUT ---
+    /* ===============================
+       TIMEOUT
+    =============================== */
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
-    // --- OPENAI CALL ---
+    /* ===============================
+       OPENAI REQUEST
+    =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/responses",
       {
@@ -61,6 +70,8 @@ export default async function handler(req, res) {
       }
     );
 
+    clearTimeout(timeout);
+
     const data = await openaiResponse.json();
 
     if (!openaiResponse.ok) {
@@ -71,8 +82,11 @@ export default async function handler(req, res) {
       });
     }
 
-    // --- EXTRACT TEXT ---
+    /* ===============================
+       EXTRACT TEXT OUTPUT
+    =============================== */
     let output = null;
+
     for (const item of data.output || []) {
       for (const block of item.content || []) {
         if (block.type === "output_text") {
@@ -80,6 +94,7 @@ export default async function handler(req, res) {
           break;
         }
       }
+      if (output) break;
     }
 
     if (!output) {
@@ -89,7 +104,11 @@ export default async function handler(req, res) {
       });
     }
 
+    /* ===============================
+       SUCCESS RESPONSE
+    =============================== */
     return res.status(200).json({ output });
+
   } catch (err) {
     console.error("SERVER ERROR:", err);
     return res.status(500).json({ error: "Server crash" });
