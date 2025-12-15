@@ -1,10 +1,10 @@
 const RATE_LIMIT = {};
-const MAX_REQUESTS = 20;
-const WINDOW_MS = 60 * 1000;
+const MAX_REQUESTS = 20;        // max requests per window
+const WINDOW_MS = 60 * 1000;    // 1 minute
 
 export default async function handler(req, res) {
   /* ===============================
-     CORS (FIXED)
+     CORS (SHOPIFY-SAFE)
   =============================== */
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     const timeout = setTimeout(() => controller.abort(), 15000);
 
     /* ===============================
-       OPENAI CALL
+       OPENAI REQUEST
     =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/responses",
@@ -83,7 +83,7 @@ export default async function handler(req, res) {
     }
 
     /* ===============================
-       EXTRACT TEXT
+       EXTRACT OUTPUT
     =============================== */
     let output = null;
 
@@ -104,6 +104,9 @@ export default async function handler(req, res) {
       });
     }
 
+    /* ===============================
+       SUCCESS
+    =============================== */
     return res.status(200).json({ output });
 
   } catch (err) {
@@ -111,3 +114,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Server crash" });
   }
 }
+
