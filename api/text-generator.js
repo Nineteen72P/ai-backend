@@ -1,6 +1,6 @@
 const RATE_LIMIT = {};
-const MAX_REQUESTS = 20;        // max requests per window
-const WINDOW_MS = 60 * 1000;    // 1 minute
+const MAX_REQUESTS = 20;
+const WINDOW_MS = 60 * 1000;
 
 export default async function handler(req, res) {
   /* ===============================
@@ -37,37 +37,34 @@ export default async function handler(req, res) {
   RATE_LIMIT[ip].push(now);
 
   /* ===============================
-     INPUT (CHAT OR SINGLE PROMPT)
+     INPUT (CHAT OR SINGLE)
   =============================== */
-  let combinedInput = "";
+  let messages = [];
 
-  // ✅ Chat history mode
   if (Array.isArray(req.body?.messages)) {
-const conversation = req.body.messages
-  .map(m => {
-    const role =
-      m.role === "ai" || m.role === "assistant" ? "AI" :
-      m.role === "system" ? "System" :
-      "User";
-
-    return `${role}: ${String(m.content || "")}`;
-  })
-  .join("\n");
-
-combinedInput =
-  `You are a helpful AI assistant. The following is a conversation. ` +
-  `You must use earlier messages to answer later ones accurately.\n\n` +
-  conversation;
+    messages = req.body.messages.map(m => ({
+      role: m.role === "ai" ? "assistant" : m.role,
+      content: String(m.content || "")
+    }));
+  } else if (typeof req.body?.input === "string") {
+    messages = [{
+      role: "user",
+      content: req.body.input.trim()
+    }];
   }
 
-  // ✅ Single prompt mode (backwards compatible)
-  else if (typeof req.body?.input === "string") {
-    combinedInput = req.body.input.trim();
-  }
-
-  if (!combinedInput) {
+  if (!messages.length) {
     return res.status(400).json({ error: "Missing input" });
   }
+
+  // 🔒 SYSTEM MESSAGE (CRITICAL)
+  messages.unshift({
+    role: "system",
+    content:
+      "You are a helpful AI assistant. This is a continuous conversation. " +
+      "You should remember and use information the user provides earlier " +
+      "in the conversation when answering later questions."
+  });
 
   try {
     /* ===============================
@@ -77,10 +74,10 @@ combinedInput =
     const timeout = setTimeout(() => controller.abort(), 15000);
 
     /* ===============================
-       OPENAI REQUEST (RESPONSES API)
+       OPENAI CHAT COMPLETION
     =============================== */
     const openaiResponse = await fetch(
-      "https://api.openai.com/v1/responses",
+      "https://api.openai.com/v1/chat/completions",
       {
         method: "POST",
         signal: controller.signal,
@@ -90,7 +87,7 @@ combinedInput =
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          input: combinedInput
+          messages
         })
       }
     );
@@ -101,37 +98,15 @@ combinedInput =
 
     if (!openaiResponse.ok) {
       console.error("OPENAI ERROR:", data);
-      return res.status(500).json({
-        error: "OpenAI request failed",
-        details: data
-      });
+      return res.status(500).json({ error: "OpenAI request failed" });
     }
 
-    /* ===============================
-       EXTRACT TEXT OUTPUT
-    =============================== */
-    let output = null;
-
-    for (const item of data.output || []) {
-      for (const block of item.content || []) {
-        if (block.type === "output_text") {
-          output = block.text;
-          break;
-        }
-      }
-      if (output) break;
-    }
+    const output = data.choices?.[0]?.message?.content;
 
     if (!output) {
-      return res.status(500).json({
-        error: "No output returned",
-        raw: data
-      });
+      return res.status(500).json({ error: "No output returned" });
     }
 
-    /* ===============================
-       SUCCESS
-    =============================== */
     return res.status(200).json({ output });
 
   } catch (err) {
