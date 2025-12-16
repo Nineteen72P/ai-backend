@@ -37,31 +37,32 @@ export default async function handler(req, res) {
   RATE_LIMIT[ip].push(now);
 
   /* ===============================
-     INPUT (SINGLE PROMPT OR CHAT)
+     INPUT (CHAT OR SINGLE PROMPT)
   =============================== */
-  let messages = [];
+  let combinedInput = "";
 
   // ✅ Chat history mode
   if (Array.isArray(req.body?.messages)) {
-    messages = req.body.messages.map(m => ({
-      role: m.role === "ai" ? "assistant" : m.role,
-      content: [{ type: "text", text: String(m.content || "") }]
-    }));
+    combinedInput = req.body.messages
+      .map(m => {
+        const role =
+          m.role === "ai" ? "AI" :
+          m.role === "assistant" ? "AI" :
+          m.role === "system" ? "System" :
+          "User";
+
+        return `${role}: ${String(m.content || "")}`;
+      })
+      .join("\n");
   }
 
-  // ✅ Backwards-compatible single prompt mode
+  // ✅ Single prompt mode (backwards compatible)
   else if (typeof req.body?.input === "string") {
-    const input = req.body.input.trim();
-    if (input) {
-      messages = [{
-        role: "user",
-        content: [{ type: "text", text: input }]
-      }];
-    }
+    combinedInput = req.body.input.trim();
   }
 
-  if (!messages.length) {
-    return res.status(400).json({ error: "Missing input or messages" });
+  if (!combinedInput) {
+    return res.status(400).json({ error: "Missing input" });
   }
 
   try {
@@ -85,7 +86,7 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          input: messages
+          input: combinedInput
         })
       }
     );
