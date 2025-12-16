@@ -43,17 +43,21 @@ export default async function handler(req, res) {
 
   // ✅ Chat history mode
   if (Array.isArray(req.body?.messages)) {
-    combinedInput = req.body.messages
-      .map(m => {
-        const role =
-          m.role === "ai" ? "AI" :
-          m.role === "assistant" ? "AI" :
-          m.role === "system" ? "System" :
-          "User";
+const conversation = req.body.messages
+  .map(m => {
+    const role =
+      m.role === "ai" || m.role === "assistant" ? "AI" :
+      m.role === "system" ? "System" :
+      "User";
 
-        return `${role}: ${String(m.content || "")}`;
-      })
-      .join("\n");
+    return `${role}: ${String(m.content || "")}`;
+  })
+  .join("\n");
+
+combinedInput =
+  `You are a helpful AI assistant. The following is a conversation. ` +
+  `You must use earlier messages to answer later ones accurately.\n\n` +
+  conversation;
   }
 
   // ✅ Single prompt mode (backwards compatible)
