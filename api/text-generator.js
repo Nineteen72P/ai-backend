@@ -37,7 +37,7 @@ export default async function handler(req, res) {
   RATE_LIMIT[ip].push(now);
 
   /* ===============================
-     INPUT (CHAT OR SINGLE)
+     INPUT
   =============================== */
   let messages = [];
 
@@ -57,25 +57,18 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing input" });
   }
 
-  // 🔒 SYSTEM MESSAGE (CRITICAL)
+  // 🔑 SYSTEM MESSAGE — REQUIRED
   messages.unshift({
     role: "system",
     content:
       "You are a helpful AI assistant. This is a continuous conversation. " +
-      "You should remember and use information the user provides earlier " +
-      "in the conversation when answering later questions."
+      "You must remember and use information the user provides earlier."
   });
 
   try {
-    /* ===============================
-       TIMEOUT
-    =============================== */
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
-    /* ===============================
-       OPENAI CHAT COMPLETION
-    =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -114,3 +107,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Server crash" });
   }
 }
+
