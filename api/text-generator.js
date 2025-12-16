@@ -4,7 +4,7 @@ const WINDOW_MS = 60 * 1000;    // 1 minute
 
 export default async function handler(req, res) {
   /* ===============================
-     CORS (FIXED)
+     CORS
   =============================== */
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -37,11 +37,31 @@ export default async function handler(req, res) {
   RATE_LIMIT[ip].push(now);
 
   /* ===============================
-     INPUT
+     INPUT (SINGLE PROMPT OR CHAT)
   =============================== */
-  const input = (req.body?.input || "").trim();
-  if (!input) {
-    return res.status(400).json({ error: "Missing input" });
+  let messages = [];
+
+  // ✅ Chat history mode
+  if (Array.isArray(req.body?.messages)) {
+    messages = req.body.messages.map(m => ({
+      role: m.role === "ai" ? "assistant" : m.role,
+      content: [{ type: "text", text: String(m.content || "") }]
+    }));
+  }
+
+  // ✅ Backwards-compatible single prompt mode
+  else if (typeof req.body?.input === "string") {
+    const input = req.body.input.trim();
+    if (input) {
+      messages = [{
+        role: "user",
+        content: [{ type: "text", text: input }]
+      }];
+    }
+  }
+
+  if (!messages.length) {
+    return res.status(400).json({ error: "Missing input or messages" });
   }
 
   try {
@@ -52,7 +72,7 @@ export default async function handler(req, res) {
     const timeout = setTimeout(() => controller.abort(), 15000);
 
     /* ===============================
-       OPENAI REQUEST
+       OPENAI REQUEST (RESPONSES API)
     =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/responses",
@@ -65,7 +85,7 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          input
+          input: messages
         })
       }
     );
@@ -105,7 +125,7 @@ export default async function handler(req, res) {
     }
 
     /* ===============================
-       SUCCESS RESPONSE
+       SUCCESS
     =============================== */
     return res.status(200).json({ output });
 
