@@ -6,26 +6,41 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  /* ===============================
+     ENV CHECK
+  =============================== */
   if (!process.env.OPENAI_API_KEY) {
     return res.status(500).json({ error: "OPENAI_API_KEY not set" });
   }
 
-  const { messages } = req.body || {};
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: "messages[] required" });
+  /* ===============================
+     INPUT
+  =============================== */
+  const { prompt } = req.body || {};
+
+  if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
+    return res.status(400).json({ error: "prompt is required" });
   }
 
-  const finalMessages = [
+  const messages = [
     {
       role: "system",
       content:
         "You are a helpful AI assistant in a continuous conversation. " +
-        "Remember and use information shared earlier."
+        "Answer clearly and concisely."
     },
-    ...messages
+    {
+      role: "user",
+      content: prompt
+    }
   ];
 
   try {
@@ -41,8 +56,8 @@ export default async function handler(req, res) {
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
         },
         body: JSON.stringify({
-          model: "gpt-4o",
-          messages: finalMessages,
+          model: "gpt-4o-mini",
+          messages,
           stream: true
         })
       }
@@ -74,7 +89,7 @@ export default async function handler(req, res) {
     res.end();
 
   } catch (err) {
-    console.error(err);
-    return res.status(500).end();
+    console.error("OpenAI error:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
