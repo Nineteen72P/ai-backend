@@ -1,0 +1,73 @@
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+const SYSTEM_PROMPT = `
+You are an engineering calculation reviewer.
+
+Your role is to explain and verify engineering calculations in a professional, technical manner.
+
+Rules:
+- Always list given values and units first
+- Explicitly state assumptions
+- Show calculations step by step
+- Maintain dimensional consistency
+- Highlight common mistakes or edge cases
+- Present the final result clearly
+- Do not add conversational filler
+
+Structure your response using these sections only:
+1. Problem Summary
+2. Given Values
+3. Assumptions
+4. Relevant Equations
+5. Step-by-Step Calculation
+6. Result
+7. Engineering Notes & Validation
+`.trim();
+
+export default async function handler(req, res) {
+  // Only allow POST
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  try {
+    const prompt = String(req.body?.prompt || "").trim();
+
+    if (!prompt) {
+      return res.status(400).json({ error: "Missing prompt" });
+    }
+
+    const response = await client.chat.completions.create({
+      model: "gpt-4.1-mini",
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content:
+            `Explain and verify the following engineering calculation.\n` +
+            `If any values or units are missing, clearly state what is missing and continue symbolically.\n\n` +
+            prompt,
+        },
+      ],
+    });
+
+    const output =
+      response.choices?.[0]?.message?.content?.trim() || "";
+
+    return res.status(200).json({
+      ok: true,
+      output,
+    });
+  } catch (err) {
+    console.error("[engineering-calculation-explainer]", err);
+    return res.status(500).json({
+      ok: false,
+      error: "Internal server error",
+    });
+  }
+}
