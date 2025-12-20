@@ -1,21 +1,33 @@
 const RATE_LIMIT = {};
-const MAX_REQUESTS = 30;        // chat can be slightly higher
-const WINDOW_MS = 60 * 1000;    // 1 minute
+const MAX_REQUESTS = 30;
+const WINDOW_MS = 60 * 1000;
 
 export default async function handler(req, res) {
   /* ===============================
-     CORS (SHOPIFY-SAFE)
+     CORS (STREAM SAFE)
   =============================== */
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Accept"
+  );
+  res.setHeader("Access-Control-Allow-Credentials", "false");
 
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    res.status(204).end();
+    return;
   }
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  /* ===============================
+     ENV CHECK
+  =============================== */
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(500).json({ error: "OPENAI_API_KEY not set" });
   }
 
   /* ===============================
@@ -37,99 +49,84 @@ export default async function handler(req, res) {
   RATE_LIMIT[ip].push(now);
 
   /* ===============================
-     INPUT
+     INPUT (MATCHES FRONTEND)
   =============================== */
-  const input = (req.body?.input || "").trim();
-  if (!input) {
-    return res.status(400).json({ error: "Missing input" });
+  const { prompt } = req.body || {};
+
+  if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
+    return res.status(400).json({ error: "prompt is required" });
   }
+
+  /* ===============================
+     OPENAI MESSAGES
+  =============================== */
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a helpful, friendly AI assistant. " +
+        "Answer clearly, concisely, and conversationally."
+    },
+    {
+      role: "user",
+      content: prompt
+    }
+  ];
 
   try {
     /* ===============================
-       TIMEOUT
-    =============================== */
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-
-    /* ===============================
-       OPENAI CHAT REQUEST
+       OPENAI STREAM REQUEST
     =============================== */
     const openaiResponse = await fetch(
-      "https://api.openai.com/v1/responses",
+      "https://api.openai.com/v1/chat/completions",
       {
         method: "POST",
-        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          input: [
-            {
-              role: "system",
-              content: [
-                {
-                  type: "text",
-                  text: "You are a helpful, friendly AI assistant. Answer clearly and concisely."
-                }
-              ]
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: input
-                }
-              ]
-            }
-          ]
+          messages,
+          stream: true
         })
       }
     );
 
-    clearTimeout(timeout);
-
-    const data = await openaiResponse.json();
-
     if (!openaiResponse.ok) {
-      console.error("OPENAI CHAT ERROR:", data);
-      return res.status(500).json({
-        error: "OpenAI request failed",
-        details: data
-      });
+      const err = await openaiResponse.text();
+      return res.status(500).json({ error: err });
     }
 
     /* ===============================
-       EXTRACT OUTPUT TEXT
+       STREAM HEADERS
     =============================== */
-    let output = null;
-
-    for (const item of data.output || []) {
-      for (const block of item.content || []) {
-        if (block.type === "output_text") {
-          output = block.text;
-          break;
-        }
-      }
-      if (output) break;
-    }
-
-    if (!output) {
-      return res.status(500).json({
-        error: "No output returned",
-        raw: data
-      });
-    }
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
 
     /* ===============================
-       SUCCESS
+       PIPE STREAM TO CLIENT
     =============================== */
-    return res.status(200).json({ output });
+    const reader = openaiResponse.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      res.write(chunk);
+    }
+
+    res.end();
 
   } catch (err) {
-    console.error("SERVER ERROR:", err);
-    return res.status(500).json({ error: "Server crash" });
+    console.error("Chatbot error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "Internal server error" });
+    }
   }
 }
