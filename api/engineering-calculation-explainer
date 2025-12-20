@@ -1,11 +1,156 @@
-export default async function handler(req, res) {
-  res.setHeader("Content-Type", "application/json");
+import OpenAI from "openai";
 
-  return res.status(200).json({
-    ok: true,
-    output:
-      "ENGINEERING BACKEND CONFIRMED\n" +
-      "• This endpoint returns JSON\n" +
-      "• Streaming is disabled"
-  });
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+/* =========================================================
+   SYSTEM PROMPT — ENGINEERING REVIEW (STEP-BASED)
+========================================================= */
+
+const SYSTEM_PROMPT = `
+You are an engineering calculation reviewer.
+
+Return ONLY valid JSON that matches the provided schema.
+
+Formatting rules:
+- Do NOT use markdown headings (###).
+- Do NOT use LaTeX blocks or math delimiters.
+- Step headings such as "Step 1", "Step 2", etc. ARE REQUIRED.
+- Use clear bullet points where appropriate.
+- Include units on every numeric value.
+
+Content rules:
+- Be technically correct and conservative.
+- If data is missing, state it clearly and continue symbolically.
+`.trim();
+
+/* =========================================================
+   RENDER OUTPUT (STEP HEADINGS)
+========================================================= */
+
+function renderSections(data) {
+  const bullets = (arr) =>
+    Array.isArray(arr) ? arr.map((l) => `• ${l}`).join("\n") : "";
+
+  const steps = (arr) =>
+    Array.isArray(arr)
+      ? arr
+          .map((l, i) => `Step ${i + 1}\n• ${l}`)
+          .join("\n\n")
+      : "";
+
+  return [
+    "Problem Summary",
+    bullets([data.problem_summary]),
+    "",
+    "Given Values",
+    bullets(data.given_values),
+    "",
+    "Assumptions",
+    bullets(data.assumptions),
+    "",
+    "Relevant Equations",
+    bullets(data.relevant_equations),
+    "",
+    "Calculation",
+    steps(data.step_by_step_calculation),
+    "",
+    "Result",
+    bullets(data.result),
+    "",
+    "Notes & Validation",
+    bullets(data.engineering_notes_validation),
+  ]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/* =========================================================
+   API HANDLER
+========================================================= */
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  try {
+    const prompt = String(req.body?.prompt || "").trim();
+    if (!prompt) {
+      return res.status(400).json({ error: "Missing prompt" });
+    }
+
+    const response = await client.chat.completions.create({
+      model: "gpt-4.1-mini",
+      temperature: 0.2,
+
+      // 🔒 STRICT JSON ENFORCEMENT
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "engineering_calculation_review",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              problem_summary: { type: "string" },
+              given_values: { type: "array", items: { type: "string" } },
+              assumptions: { type: "array", items: { type: "string" } },
+              relevant_equations: { type: "array", items: { type: "string" } },
+              step_by_step_calculation: {
+                type: "array",
+                items: { type: "string" },
+              },
+              result: { type: "array", items: { type: "string" } },
+              engineering_notes_validation: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
+            required: [
+              "problem_summary",
+              "given_values",
+              "assumptions",
+              "relevant_equations",
+              "step_by_step_calculation",
+              "result",
+              "engineering_notes_validation",
+            ],
+          },
+        },
+      },
+
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content:
+            `Create a step-by-step engineering calculation review.\n` +
+            `Each calculation step must map to Step 1, Step 2, etc.\n` +
+            `Use bullet points and include units on every numeric value.\n\n` +
+            `INPUT:\n${prompt}`,
+        },
+      ],
+    });
+
+    const raw = response.choices?.[0]?.message?.content || "{}";
+    const data = JSON.parse(raw);
+
+    const output = renderSections(data);
+
+    return res.status(200).json({
+      ok: true,
+      output,
+      version: "engineering-calc-step-v1",
+    });
+  } catch (err) {
+    console.error("[engineering-calculation-explainer]", err);
+    return res.status(500).json({
+      ok: false,
+      error: "Internal server error",
+    });
+  }
 }
