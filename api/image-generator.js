@@ -22,7 +22,9 @@ export default async function handler(req, res) {
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: "OPENAI_API_KEY not set" });
+    return res.status(500).json({
+      error: "OPENAI_API_KEY not set"
+    });
   }
 
   /* ===============================
@@ -59,7 +61,7 @@ export default async function handler(req, res) {
     const parsed = JSON.parse(body);
     input = parsed.input || parsed.prompt || "";
   } catch {
-    // Try form / raw
+    // Try form or raw
     const match =
       body.match(/input=([^&]+)/) ||
       body.match(/prompt=([^&]+)/);
@@ -73,7 +75,8 @@ export default async function handler(req, res) {
 
   if (!input) {
     return res.status(400).json({
-      error: "Missing input"
+      error: "Missing input",
+      receivedBody: body
     });
   }
 
@@ -103,16 +106,18 @@ export default async function handler(req, res) {
     try {
       data = JSON.parse(raw);
     } catch {
-      console.error("OPENAI IMAGE NON-JSON:", raw);
+      console.error("OPENAI IMAGE NON-JSON RESPONSE:", raw);
       return res.status(500).json({
-        error: "Invalid image response"
+        error: "Non-JSON response from OpenAI",
+        raw
       });
     }
 
     if (!imageResponse.ok) {
       console.error("OPENAI IMAGE ERROR:", data);
-      return res.status(500).json({
-        error: "Image generation failed"
+      return res.status(imageResponse.status).json({
+        error: "OpenAI image generation error",
+        openai: data
       });
     }
 
@@ -120,7 +125,8 @@ export default async function handler(req, res) {
 
     if (!image) {
       return res.status(500).json({
-        error: "No image returned"
+        error: "No image returned",
+        openai: data
       });
     }
 
@@ -130,7 +136,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ image });
 
   } catch (err) {
-    console.error("IMAGE SERVER ERROR:", err);
-    return res.status(500).json({ error: "Server crash" });
+    console.error("IMAGE SERVER CRASH:", err);
+    return res.status(500).json({
+      error: "Server crash",
+      message: err.message
+    });
   }
 }
