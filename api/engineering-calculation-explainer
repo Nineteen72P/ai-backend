@@ -33,6 +33,7 @@ Formatting rules:
 - Leave one blank line after each section title
 - Use simple line breaks, not markdown
 - Calculations must be explicit and traceable
+`.trim();
 
 export default async function handler(req, res) {
   // Only allow POST
