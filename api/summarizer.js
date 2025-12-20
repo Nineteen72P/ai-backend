@@ -27,33 +27,29 @@ export default async function handler(req, res) {
   }
 
   /* ===============================
-     INPUT (MATCH FRONTEND)
+     INPUT (MATCHES FRONTEND)
   =============================== */
-  const { input } = req.body || {};
+  const { prompt } = req.body || {};
 
-  if (!input || typeof input !== "string" || input.trim() === "") {
-    return res.status(400).json({ error: "input is required" });
+  if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
+    return res.status(400).json({ error: "prompt is required" });
   }
 
-  /* ===============================
-     OPENAI MESSAGES
-  =============================== */
   const messages = [
     {
       role: "system",
       content:
-        "You are a helpful AI assistant. " +
-        "Summarize the user's text clearly and concisely."
+        "You are a helpful AI assistant. Summarize the user's text clearly and concisely."
     },
     {
       role: "user",
-      content: input
+      content: prompt
     }
   ];
 
   try {
     /* ===============================
-       OPENAI STREAM REQUEST
+       OPENAI STREAM
     =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
@@ -77,19 +73,14 @@ export default async function handler(req, res) {
     }
 
     /* ===============================
-       STREAM HEADERS (CRITICAL)
+       STREAM HEADERS
     =============================== */
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
-
-    // Important for Vercel / proxies
     res.flushHeaders?.();
 
-    /* ===============================
-       PIPE STREAM TO CLIENT
-    =============================== */
     const reader = openaiResponse.body.getReader();
     const decoder = new TextDecoder();
 
