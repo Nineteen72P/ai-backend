@@ -1,6 +1,6 @@
 const RATE_LIMIT = {};
-const MAX_REQUESTS = 10;
-const WINDOW_MS = 60 * 1000;
+const MAX_REQUESTS = 10;        // images are heavier
+const WINDOW_MS = 60 * 1000;    // 1 minute
 
 export default async function handler(req, res) {
   /* ===============================
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
   RATE_LIMIT[ip].push(now);
 
   /* ===============================
-     BODY PARSE (JSON + FORM + RAW)
+     BODY PARSE (BULLETPROOF)
   =============================== */
   let body = "";
   await new Promise(resolve => {
@@ -59,7 +59,7 @@ export default async function handler(req, res) {
     const parsed = JSON.parse(body);
     input = parsed.input || parsed.prompt || "";
   } catch {
-    // Try form or raw
+    // Try form / raw
     const match =
       body.match(/input=([^&]+)/) ||
       body.match(/prompt=([^&]+)/);
@@ -73,13 +73,12 @@ export default async function handler(req, res) {
 
   if (!input) {
     return res.status(400).json({
-      error: "Missing input",
-      receivedBody: body
+      error: "Missing input"
     });
   }
 
   /* ===============================
-     OPENAI IMAGE GENERATION
+     OPENAI IMAGE REQUEST
   =============================== */
   try {
     const imageResponse = await fetch(
@@ -121,8 +120,7 @@ export default async function handler(req, res) {
 
     if (!image) {
       return res.status(500).json({
-        error: "No image returned",
-        raw: data
+        error: "No image returned"
       });
     }
 
