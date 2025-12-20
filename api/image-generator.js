@@ -1,21 +1,28 @@
 const RATE_LIMIT = {};
-const MAX_REQUESTS = 10;        // images are heavier → lower limit
-const WINDOW_MS = 60 * 1000;    // 1 minute
+const MAX_REQUESTS = 10;
+const WINDOW_MS = 60 * 1000;
 
 export default async function handler(req, res) {
   /* ===============================
-     CORS (SHOPIFY-SAFE)
+     CORS (SHOPIFY SAFE)
   =============================== */
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Accept"
+  );
 
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    return res.status(204).end();
   }
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(500).json({ error: "OPENAI_API_KEY not set" });
   }
 
   /* ===============================
@@ -37,17 +44,44 @@ export default async function handler(req, res) {
   RATE_LIMIT[ip].push(now);
 
   /* ===============================
-     INPUT
+     BODY PARSE (JSON + FORM + RAW)
   =============================== */
-  const input = (req.body?.input || "").trim();
-  if (!input) {
-    return res.status(400).json({ error: "Missing input" });
+  let body = "";
+  await new Promise(resolve => {
+    req.on("data", chunk => (body += chunk));
+    req.on("end", resolve);
+  });
+
+  let input = "";
+
+  // Try JSON
+  try {
+    const parsed = JSON.parse(body);
+    input = parsed.input || parsed.prompt || "";
+  } catch {
+    // Try form or raw
+    const match =
+      body.match(/input=([^&]+)/) ||
+      body.match(/prompt=([^&]+)/);
+
+    if (match) {
+      input = decodeURIComponent(match[1].replace(/\+/g, " "));
+    }
   }
 
+  input = (input || "").trim();
+
+  if (!input) {
+    return res.status(400).json({
+      error: "Missing input",
+      receivedBody: body
+    });
+  }
+
+  /* ===============================
+     OPENAI IMAGE GENERATION
+  =============================== */
   try {
-    /* ===============================
-       OPENAI IMAGE GENERATION
-    =============================== */
     const imageResponse = await fetch(
       "https://api.openai.com/v1/images/generations",
       {
@@ -64,19 +98,26 @@ export default async function handler(req, res) {
       }
     );
 
-    const data = await imageResponse.json();
+    const raw = await imageResponse.text();
+
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      console.error("OPENAI IMAGE NON-JSON:", raw);
+      return res.status(500).json({
+        error: "Invalid image response"
+      });
+    }
 
     if (!imageResponse.ok) {
       console.error("OPENAI IMAGE ERROR:", data);
       return res.status(500).json({
-        error: "Image generation failed",
-        details: data
+        error: "Image generation failed"
       });
     }
 
-    const image =
-      data?.data?.[0]?.url ||
-      null;
+    const image = data?.data?.[0]?.url || null;
 
     if (!image) {
       return res.status(500).json({
@@ -91,7 +132,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ image });
 
   } catch (err) {
-    console.error("SERVER ERROR:", err);
+    console.error("IMAGE SERVER ERROR:", err);
     return res.status(500).json({ error: "Server crash" });
   }
 }
