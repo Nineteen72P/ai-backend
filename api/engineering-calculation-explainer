@@ -1,83 +1,133 @@
 import OpenAI from "openai";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const SYSTEM_PROMPT = `
 You are an engineering calculation reviewer.
-
-Your task is to explain and verify engineering calculations in a professional, review-ready format.
-
-STRICT RULES (DO NOT VIOLATE):
-- Use ONLY the section headers listed below
-- Do NOT use markdown headings like ### or bullet lists outside sections
-- Do NOT write tutorial-style explanations
-- Do NOT include conversational language
-- Do NOT change section names or order
-- Show units on every numeric value
-- Keep formatting clean and scannable
-
-You MUST output the following sections in this exact order and wording:
-
-PROBLEM SUMMARY
-GIVEN VALUES
-ASSUMPTIONS
-RELEVANT EQUATIONS
-STEP-BY-STEP CALCULATION
-RESULT
-ENGINEERING NOTES & VALIDATION
-
-Formatting rules:
-- Section titles must be ALL CAPS
-- Leave one blank line after each section title
-- Use simple line breaks, not markdown
-- Calculations must be explicit and traceable
+Return ONLY JSON that matches the provided schema.
+Do not use markdown.
+Do not include LaTeX.
+Do not include headings like "Step 1".
 `.trim();
 
+function renderSections(data) {
+  // Helper: normalize arrays/strings into clean line blocks
+  const toLines = (v) => {
+    if (!v) return "";
+    if (Array.isArray(v)) return v.filter(Boolean).join("\n");
+    return String(v).trim();
+  };
+
+  return [
+    "PROBLEM SUMMARY",
+    "",
+    toLines(data.problem_summary),
+    "",
+    "GIVEN VALUES",
+    "",
+    toLines(data.given_values),
+    "",
+    "ASSUMPTIONS",
+    "",
+    toLines(data.assumptions),
+    "",
+    "RELEVANT EQUATIONS",
+    "",
+    toLines(data.relevant_equations),
+    "",
+    "STEP-BY-STEP CALCULATION",
+    "",
+    toLines(data.step_by_step_calculation),
+    "",
+    "RESULT",
+    "",
+    toLines(data.result),
+    "",
+    "ENGINEERING NOTES & VALIDATION",
+    "",
+    toLines(data.engineering_notes_validation),
+  ]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n") // prevent extra blank lines
+    .trim();
+}
+
 export default async function handler(req, res) {
-  // Only allow POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
     const prompt = String(req.body?.prompt || "").trim();
-
-    if (!prompt) {
-      return res.status(400).json({ error: "Missing prompt" });
-    }
+    if (!prompt) return res.status(400).json({ error: "Missing prompt" });
 
     const response = await client.chat.completions.create({
       model: "gpt-4.1-mini",
       temperature: 0.2,
+      // 🔒 Force strict JSON output (the key)
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "engineering_calculation_review",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              problem_summary: { type: "string" },
+              given_values: { type: "array", items: { type: "string" } },
+              assumptions: { type: "array", items: { type: "string" } },
+              relevant_equations: { type: "array", items: { type: "string" } },
+              step_by_step_calculation: { type: "array", items: { type: "string" } },
+              result: { type: "array", items: { type: "string" } },
+              engineering_notes_validation: { type: "array", items: { type: "string" } },
+            },
+            required: [
+              "problem_summary",
+              "given_values",
+              "assumptions",
+              "relevant_equations",
+              "step_by_step_calculation",
+              "result",
+              "engineering_notes_validation",
+            ],
+          },
+        },
+      },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
           content:
-             `ENGINEERING CALCULATION FOR REVIEW\n\n` +
-              `Follow ALL formatting rules exactly.\n` +
-              `Use ONLY the required section headers.\n` +
-              `Do NOT use markdown, step labels, bullets, or equation blocks.\n` +
-              `This is a formal calculation review, not a tutorial.\n\n` +
-              `CALCULATION INPUT:\n` +
+            `Create a calculation review for the following input.\n` +
+            `Rules:\n` +
+            `- Include units on every numeric value\n` +
+            `- Keep each list item to one line\n` +
+            `- If something is missing, say so in ASSUMPTIONS and continue symbolically\n\n` +
+            `INPUT:\n${prompt}`,
         },
       ],
     });
 
-    const output =
-      response.choices?.[0]?.message?.content?.trim() || "";
+    const content = response.choices?.[0]?.message?.content || "{}";
 
-    return res.status(200).json({
-      ok: true,
-      output,
-    });
+    let data;
+    try {
+      data = JSON.parse(content);
+    } catch {
+      // If something unexpected happens, fall back to raw (rare)
+      return res.status(200).json({
+        ok: true,
+        output: content,
+        note: "Model did not return valid JSON.",
+      });
+    }
+
+    const output = renderSections(data);
+
+    return res.status(200).json({ ok: true, output });
   } catch (err) {
     console.error("[engineering-calculation-explainer]", err);
-    return res.status(500).json({
-      ok: false,
-      error: "Internal server error",
-    });
+    return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }
