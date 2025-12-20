@@ -56,9 +56,12 @@ export default async function handler(req, res) {
         {
           role: "user",
           content:
-            `Explain and verify the following engineering calculation.\n` +
-            `If any values or units are missing, clearly state what is missing and continue symbolically.\n\n` +
-            prompt,
+             `ENGINEERING CALCULATION FOR REVIEW\n\n` +
+              `Follow ALL formatting rules exactly.\n` +
+              `Use ONLY the required section headers.\n` +
+              `Do NOT use markdown, step labels, bullets, or equation blocks.\n` +
+              `This is a formal calculation review, not a tutorial.\n\n` +
+              `CALCULATION INPUT:\n` +
         },
       ],
     });
