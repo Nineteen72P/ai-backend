@@ -1,39 +1,11 @@
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  res.setHeader("Content-Type", "application/json");
 
-  try {
-    const { prompt } = req.body;
-    if (!prompt) {
-      return res.status(400).json({ error: "Missing prompt" });
-    }
-
-    // ⛔ NO STREAMING
-    // ⛔ NO res.write
-    // ⛔ NO text/event-stream
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: prompt }
-      ]
-    });
-
-    const output = completion.choices[0].message.content;
-
-    // ✅ JSON RESPONSE — THIS IS CRITICAL
-    return res.status(200).json({
-      ok: true,
-      output
-    });
-
-  } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      error: "Internal server error"
-    });
-  }
+  return res.status(200).json({
+    ok: true,
+    output:
+      "ENGINEERING BACKEND CONFIRMED\n" +
+      "• This endpoint returns JSON\n" +
+      "• Streaming is disabled"
+  });
 }
