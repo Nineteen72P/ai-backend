@@ -36,35 +36,30 @@ export default async function handler(req, res) {
 
   RATE_LIMIT[ip].push(now);
 
-  /* ===============================
-     INPUT
-  =============================== */
-  const input = (req.body?.input || "").trim();
-  if (!input) {
-    return res.status(400).json({ error: "Missing input" });
-  }
+ /* ===============================
+   INPUT (SAFE PARSE)
+=============================== */
+let body = "";
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+await new Promise(resolve => {
+  req.on("data", chunk => {
+    body += chunk;
+  });
+  req.on("end", resolve);
+});
 
-    const openaiResponse = await fetch(
-      "https://api.openai.com/v1/responses",
-      {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          input: `Summarize the following text clearly and concisely:\n\n${input}`
-        })
-      }
-    );
+let parsed;
+try {
+  parsed = JSON.parse(body);
+} catch {
+  return res.status(400).json({ error: "Invalid JSON" });
+}
 
-    clearTimeout(timeout);
+const input = (parsed.input || "").trim();
+
+if (!input) {
+  return res.status(400).json({ error: "Missing input" });
+}
 
     /* ===============================
        SAFE PARSE (CRITICAL FIX)
