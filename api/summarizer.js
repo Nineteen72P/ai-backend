@@ -1,13 +1,18 @@
 export default async function handler(req, res) {
   /* ===============================
-     CORS
+     CORS (STREAM SAFE)
   =============================== */
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Accept"
+  );
+  res.setHeader("Access-Control-Allow-Credentials", "false");
 
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    res.status(204).end();
+    return;
   }
 
   if (req.method !== "POST") {
@@ -30,6 +35,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "input is required" });
   }
 
+  /* ===============================
+     OPENAI MESSAGES
+  =============================== */
   const messages = [
     {
       role: "system",
@@ -45,7 +53,7 @@ export default async function handler(req, res) {
 
   try {
     /* ===============================
-       OPENAI STREAM (MATCHES WORKING FILE)
+       OPENAI STREAM REQUEST
     =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
@@ -69,12 +77,19 @@ export default async function handler(req, res) {
     }
 
     /* ===============================
-       STREAM HEADERS
+       STREAM HEADERS (CRITICAL)
     =============================== */
-    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
 
+    // Important for Vercel / proxies
+    res.flushHeaders?.();
+
+    /* ===============================
+       PIPE STREAM TO CLIENT
+    =============================== */
     const reader = openaiResponse.body.getReader();
     const decoder = new TextDecoder();
 
@@ -90,6 +105,8 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error("OpenAI error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "Internal server error" });
+    }
   }
 }
