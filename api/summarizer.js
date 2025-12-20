@@ -1,10 +1,10 @@
 const RATE_LIMIT = {};
-const MAX_REQUESTS = 20;        // max requests per window
-const WINDOW_MS = 60 * 1000;    // 1 minute
+const MAX_REQUESTS = 20;
+const WINDOW_MS = 60 * 1000;
 
 export default async function handler(req, res) {
   /* ===============================
-     CORS (SHOPIFY-SAFE)
+     CORS (SHOPIFY SAFE)
   =============================== */
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -45,15 +45,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    /* ===============================
-       TIMEOUT
-    =============================== */
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
-    /* ===============================
-       OPENAI REQUEST
-    =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/responses",
       {
@@ -72,46 +66,61 @@ export default async function handler(req, res) {
 
     clearTimeout(timeout);
 
-    const data = await openaiResponse.json();
+    /* ===============================
+       SAFE PARSE (CRITICAL FIX)
+    =============================== */
+    const rawText = await openaiResponse.text();
+
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      console.error("OPENAI NON-JSON RESPONSE:", rawText);
+      return res.status(500).json({
+        error: "Invalid response from OpenAI"
+      });
+    }
 
     if (!openaiResponse.ok) {
       console.error("OPENAI ERROR:", data);
       return res.status(500).json({
-        error: "OpenAI request failed",
-        details: data
+        error: "OpenAI request failed"
       });
     }
 
     /* ===============================
-       EXTRACT OUTPUT
+       ROBUST OUTPUT EXTRACTION
     =============================== */
-    let output = null;
+    let output =
+      data.output_text ||
+      data?.output?.[0]?.content?.[0]?.text ||
+      null;
 
-    for (const item of data.output || []) {
-      for (const block of item.content || []) {
-        if (block.type === "output_text") {
-          output = block.text;
-          break;
+    if (!output && Array.isArray(data.output)) {
+      for (const item of data.output) {
+        if (Array.isArray(item.content)) {
+          for (const block of item.content) {
+            if (block.type === "output_text" && block.text) {
+              output = block.text;
+              break;
+            }
+          }
         }
+        if (output) break;
       }
-      if (output) break;
     }
 
     if (!output) {
+      console.error("NO OUTPUT FOUND:", data);
       return res.status(500).json({
-        error: "No output returned",
-        raw: data
+        error: "No output returned"
       });
     }
 
-    /* ===============================
-       SUCCESS
-    =============================== */
     return res.status(200).json({ output });
 
   } catch (err) {
     console.error("SERVER ERROR:", err);
-    return res.status(500).json({ error: "Server crash" });
+    return res.status(500).json({ error: "Server error" });
   }
 }
-
