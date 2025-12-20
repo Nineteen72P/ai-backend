@@ -51,10 +51,10 @@ export default async function handler(req, res) {
   /* ===============================
      INPUT (MATCHES FRONTEND)
   =============================== */
-  const { prompt } = req.body || {};
+  const { input } = req.body || {};
 
-  if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
-    return res.status(400).json({ error: "prompt is required" });
+  if (!input || typeof input !== "string" || input.trim() === "") {
+    return res.status(400).json({ error: "input is required" });
   }
 
   /* ===============================
@@ -69,7 +69,7 @@ export default async function handler(req, res) {
     },
     {
       role: "user",
-      content: prompt
+      content: input
     }
   ];
 
