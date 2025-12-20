@@ -12,20 +12,15 @@ export default async function handler(req, res) {
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, Accept"
   );
-  res.setHeader("Access-Control-Allow-Credentials", "false");
 
   if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
+    return res.status(204).end();
   }
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  /* ===============================
-     ENV CHECK
-  =============================== */
   if (!process.env.OPENAI_API_KEY) {
     return res.status(500).json({ error: "OPENAI_API_KEY not set" });
   }
@@ -49,34 +44,44 @@ export default async function handler(req, res) {
   RATE_LIMIT[ip].push(now);
 
   /* ===============================
-     INPUT (MATCHES FRONTEND)
+     BODY PARSE (JSON + FORM + RAW)
   =============================== */
-  const { input } = req.body || {};
+  let body = "";
+  await new Promise(resolve => {
+    req.on("data", chunk => (body += chunk));
+    req.on("end", resolve);
+  });
 
-  if (!input || typeof input !== "string" || input.trim() === "") {
-    return res.status(400).json({ error: "input is required" });
+  let input = "";
+
+  // Try JSON
+  try {
+    const parsed = JSON.parse(body);
+    input = parsed.input || parsed.prompt || "";
+  } catch {
+    // Try form-urlencoded or raw
+    const match =
+      body.match(/input=([^&]+)/) ||
+      body.match(/prompt=([^&]+)/);
+
+    if (match) {
+      input = decodeURIComponent(match[1].replace(/\+/g, " "));
+    }
+  }
+
+  input = (input || "").trim();
+
+  if (!input) {
+    return res.status(400).json({
+      error: "Missing input",
+      receivedBody: body
+    });
   }
 
   /* ===============================
-     OPENAI MESSAGES
+     OPENAI STREAM
   =============================== */
-  const messages = [
-    {
-      role: "system",
-      content:
-        "You are a helpful, friendly AI assistant. " +
-        "Answer clearly, concisely, and conversationally."
-    },
-    {
-      role: "user",
-      content: input
-    }
-  ];
-
   try {
-    /* ===============================
-       OPENAI STREAM REQUEST
-    =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -87,8 +92,18 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          messages,
-          stream: true
+          stream: true,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a helpful, friendly AI assistant. Answer clearly and concisely."
+            },
+            {
+              role: "user",
+              content: input
+            }
+          ]
         })
       }
     );
@@ -98,31 +113,22 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: err });
     }
 
-    /* ===============================
-       STREAM HEADERS
-    =============================== */
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
-    /* ===============================
-       PIPE STREAM TO CLIENT
-    =============================== */
     const reader = openaiResponse.body.getReader();
     const decoder = new TextDecoder();
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      res.write(chunk);
+      res.write(decoder.decode(value, { stream: true }));
     }
 
     res.end();
-
   } catch (err) {
     console.error("Chatbot error:", err);
     if (!res.headersSent) {
