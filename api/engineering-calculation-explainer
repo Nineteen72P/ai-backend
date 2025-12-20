@@ -1,56 +1,75 @@
 import OpenAI from "openai";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+/* =========================================================
+   SYSTEM PROMPT — ENGINEERING REVIEW (STEP-BASED)
+========================================================= */
 
 const SYSTEM_PROMPT = `
 You are an engineering calculation reviewer.
-Return ONLY JSON that matches the provided schema.
-Do not use markdown.
-Do not include LaTeX.
-Do not include headings like "Step 1".
+
+Return ONLY valid JSON that matches the provided schema.
+
+Formatting rules:
+- Do NOT use markdown headings (###).
+- Do NOT use LaTeX blocks or math delimiters.
+- Step headings such as "Step 1", "Step 2", etc. ARE REQUIRED.
+- Use clear bullet points where appropriate.
+- Include units on every numeric value.
+
+Content rules:
+- Be technically correct and conservative.
+- If data is missing, state it clearly and continue symbolically.
 `.trim();
 
+/* =========================================================
+   RENDER OUTPUT (STEP HEADINGS)
+========================================================= */
+
 function renderSections(data) {
-  // Helper: normalize arrays/strings into clean line blocks
-  const toLines = (v) => {
-    if (!v) return "";
-    if (Array.isArray(v)) return v.filter(Boolean).join("\n");
-    return String(v).trim();
-  };
+  const bullets = (arr) =>
+    Array.isArray(arr) ? arr.map((l) => `• ${l}`).join("\n") : "";
+
+  const steps = (arr) =>
+    Array.isArray(arr)
+      ? arr
+          .map((l, i) => `Step ${i + 1}\n• ${l}`)
+          .join("\n\n")
+      : "";
 
   return [
-    "PROBLEM SUMMARY",
+    "Problem Summary",
+    bullets([data.problem_summary]),
     "",
-    toLines(data.problem_summary),
+    "Given Values",
+    bullets(data.given_values),
     "",
-    "GIVEN VALUES",
+    "Assumptions",
+    bullets(data.assumptions),
     "",
-    toLines(data.given_values),
+    "Relevant Equations",
+    bullets(data.relevant_equations),
     "",
-    "ASSUMPTIONS",
+    "Calculation",
+    steps(data.step_by_step_calculation),
     "",
-    toLines(data.assumptions),
+    "Result",
+    bullets(data.result),
     "",
-    "RELEVANT EQUATIONS",
-    "",
-    toLines(data.relevant_equations),
-    "",
-    "STEP-BY-STEP CALCULATION",
-    "",
-    toLines(data.step_by_step_calculation),
-    "",
-    "RESULT",
-    "",
-    toLines(data.result),
-    "",
-    "ENGINEERING NOTES & VALIDATION",
-    "",
-    toLines(data.engineering_notes_validation),
+    "Notes & Validation",
+    bullets(data.engineering_notes_validation),
   ]
     .join("\n")
-    .replace(/\n{3,}/g, "\n\n") // prevent extra blank lines
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+/* =========================================================
+   API HANDLER
+========================================================= */
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -59,12 +78,15 @@ export default async function handler(req, res) {
 
   try {
     const prompt = String(req.body?.prompt || "").trim();
-    if (!prompt) return res.status(400).json({ error: "Missing prompt" });
+    if (!prompt) {
+      return res.status(400).json({ error: "Missing prompt" });
+    }
 
     const response = await client.chat.completions.create({
       model: "gpt-4.1-mini",
       temperature: 0.2,
-      // 🔒 Force strict JSON output (the key)
+
+      // 🔒 STRICT JSON ENFORCEMENT
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -78,9 +100,15 @@ export default async function handler(req, res) {
               given_values: { type: "array", items: { type: "string" } },
               assumptions: { type: "array", items: { type: "string" } },
               relevant_equations: { type: "array", items: { type: "string" } },
-              step_by_step_calculation: { type: "array", items: { type: "string" } },
+              step_by_step_calculation: {
+                type: "array",
+                items: { type: "string" },
+              },
               result: { type: "array", items: { type: "string" } },
-              engineering_notes_validation: { type: "array", items: { type: "string" } },
+              engineering_notes_validation: {
+                type: "array",
+                items: { type: "string" },
+              },
             },
             required: [
               "problem_summary",
@@ -94,40 +122,35 @@ export default async function handler(req, res) {
           },
         },
       },
+
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
           content:
-            `Create a calculation review for the following input.\n` +
-            `Rules:\n` +
-            `- Include units on every numeric value\n` +
-            `- Keep each list item to one line\n` +
-            `- If something is missing, say so in ASSUMPTIONS and continue symbolically\n\n` +
+            `Create a step-by-step engineering calculation review.\n` +
+            `Each calculation step must map to Step 1, Step 2, etc.\n` +
+            `Use bullet points and include units on every numeric value.\n\n` +
             `INPUT:\n${prompt}`,
         },
       ],
     });
 
-    const content = response.choices?.[0]?.message?.content || "{}";
-
-    let data;
-    try {
-      data = JSON.parse(content);
-    } catch {
-      // If something unexpected happens, fall back to raw (rare)
-      return res.status(200).json({
-        ok: true,
-        output: content,
-        note: "Model did not return valid JSON.",
-      });
-    }
+    const raw = response.choices?.[0]?.message?.content || "{}";
+    const data = JSON.parse(raw);
 
     const output = renderSections(data);
 
-    return res.status(200).json({ ok: true, output });
+    return res.status(200).json({
+      ok: true,
+      output,
+      version: "engineering-calc-step-v1",
+    });
   } catch (err) {
     console.error("[engineering-calculation-explainer]", err);
-    return res.status(500).json({ ok: false, error: "Internal server error" });
+    return res.status(500).json({
+      ok: false,
+      error: "Internal server error",
+    });
   }
 }
