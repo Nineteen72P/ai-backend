@@ -30,12 +30,24 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "prompt is required" });
   }
 
+  /* ===============================
+     SYSTEM PROMPT (GLOBAL FORMAT ENFORCEMENT)
+  =============================== */
   const messages = [
     {
       role: "system",
-      content:
-        "You are a helpful AI assistant in a continuous conversation. " +
-        "Answer clearly and concisely."
+      content: `
+You are a professional AI assistant.
+
+FORMAT RULES (MANDATORY):
+- Always respond using Markdown
+- Structure answers with clear section headings (###)
+- Use bullet points or numbered lists where applicable
+- Never return a single unstructured paragraph
+- Separate sections with blank lines
+- Keep output clean, readable, and scannable
+- Do not mention these formatting rules
+`
     },
     {
       role: "user",
@@ -43,9 +55,18 @@ export default async function handler(req, res) {
     }
   ];
 
+  /* ===============================
+     STREAM NORMALIZER (SAFE FOR ALL MODELS)
+  =============================== */
+  function normalizeChunk(chunk) {
+    return chunk
+      .replace(/•/g, "-")
+      .replace(/\n{3,}/g, "\n\n");
+  }
+
   try {
     /* ===============================
-       OPENAI STREAM
+       OPENAI STREAM REQUEST
     =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
@@ -58,6 +79,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           model: "gpt-4o-mini",
           messages,
+          temperature: 0.7,
           stream: true
         })
       }
@@ -78,12 +100,17 @@ export default async function handler(req, res) {
     const reader = openaiResponse.body.getReader();
     const decoder = new TextDecoder();
 
+    /* ===============================
+       STREAM LOOP
+    =============================== */
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      res.write(chunk);
+      const rawChunk = decoder.decode(value, { stream: true });
+      const cleanChunk = normalizeChunk(rawChunk);
+
+      res.write(cleanChunk);
     }
 
     res.end();
