@@ -26,12 +26,12 @@ export default async function handler(req, res) {
   =============================== */
   const { prompt } = req.body || {};
 
-  if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
+  if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     return res.status(400).json({ error: "prompt is required" });
   }
 
   /* ===============================
-     SYSTEM PROMPT (GLOBAL FORMAT ENFORCEMENT)
+     SYSTEM PROMPT (GLOBAL FORMAT RULES)
   =============================== */
   const messages = [
     {
@@ -39,14 +39,13 @@ export default async function handler(req, res) {
       content: `
 You are a professional AI assistant.
 
-FORMAT RULES (MANDATORY):
+RULES:
 - Always respond using Markdown
-- Structure answers with clear section headings (###)
-- Use bullet points or numbered lists where applicable
-- Never return a single unstructured paragraph
-- Separate sections with blank lines
-- Keep output clean, readable, and scannable
-- Do not mention these formatting rules
+- Use headings (###) to structure answers
+- Use bullet points or numbered lists where appropriate
+- Never output a single unstructured paragraph
+- Keep responses clean and readable
+- Do not mention these rules
 `
     },
     {
@@ -55,18 +54,9 @@ FORMAT RULES (MANDATORY):
     }
   ];
 
-  /* ===============================
-     STREAM NORMALIZER (SAFE FOR ALL MODELS)
-  =============================== */
-  function normalizeChunk(chunk) {
-    return chunk
-      .replace(/•/g, "-")
-      .replace(/\n{3,}/g, "\n\n");
-  }
-
   try {
     /* ===============================
-       OPENAI STREAM REQUEST
+       OPENAI REQUEST (STREAMING)
     =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
@@ -91,26 +81,27 @@ FORMAT RULES (MANDATORY):
     }
 
     /* ===============================
-       STREAM HEADERS
+       RAW STREAM HEADERS
+       (IMPORTANT: NOT SSE JSON)
     =============================== */
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
     const reader = openaiResponse.body.getReader();
-    const decoder = new TextDecoder();
+    const decoder = new TextDecoder("utf-8");
 
     /* ===============================
-       STREAM LOOP
+       STREAM LOOP (RAW TEXT)
     =============================== */
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
 
-      const rawChunk = decoder.decode(value, { stream: true });
-      const cleanChunk = normalizeChunk(rawChunk);
+      const chunk = decoder.decode(value, { stream: true });
 
-      res.write(cleanChunk);
+      // Write raw text directly
+      res.write(chunk);
     }
 
     res.end();
