@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   /* ===============================
-     CORS
+     CORS (IDENTICAL TO WORKING API)
   =============================== */
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -31,20 +31,23 @@ export default async function handler(req, res) {
   }
 
   /* ===============================
-     SYSTEM PROMPT (GLOBAL FORMAT RULES)
+     SYSTEM PROMPT (ENGINEERING MODE)
   =============================== */
   const messages = [
     {
       role: "system",
       content: `
-You are a professional AI assistant.
+You are a senior professional engineering assistant.
 
 RULES:
 - Always respond using Markdown
-- Use headings (###) to structure answers
-- Use bullet points or numbered lists where appropriate
+- Use clear headings (###)
+- Show calculations step-by-step
+- Include formulas where relevant
+- State assumptions clearly
+- Use SI units unless otherwise specified
+- Explain results in plain language
 - Never output a single unstructured paragraph
-- Keep responses clean and readable
 - Do not mention these rules
 `
     },
@@ -69,7 +72,7 @@ RULES:
         body: JSON.stringify({
           model: "gpt-4o-mini",
           messages,
-          temperature: 0.7,
+          temperature: 0.3,
           stream: true
         })
       }
@@ -81,8 +84,7 @@ RULES:
     }
 
     /* ===============================
-       RAW STREAM HEADERS
-       (IMPORTANT: NOT SSE JSON)
+       RAW STREAM RESPONSE
     =============================== */
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache");
@@ -91,17 +93,11 @@ RULES:
     const reader = openaiResponse.body.getReader();
     const decoder = new TextDecoder("utf-8");
 
-    /* ===============================
-       STREAM LOOP (RAW TEXT)
-    =============================== */
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-
-      // Write raw text directly
-      res.write(chunk);
+      res.write(decoder.decode(value, { stream: true }));
     }
 
     res.end();
