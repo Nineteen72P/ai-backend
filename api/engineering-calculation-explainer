@@ -1,10 +1,15 @@
+export const config = {
+  runtime: "nodejs"
+};
+
 export default async function handler(req, res) {
   /* ===============================
-     CORS
+     CORS (MUST BE FIRST)
   =============================== */
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Origin", "https://mayti.org");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Max-Age", "86400");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -21,18 +26,12 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "OPENAI_API_KEY not set" });
   }
 
-  /* ===============================
-     INPUT
-  =============================== */
   const { prompt } = req.body || {};
 
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     return res.status(400).json({ error: "prompt is required" });
   }
 
-  /* ===============================
-     SYSTEM PROMPT (GLOBAL FORMAT RULES)
-  =============================== */
   const messages = [
     {
       role: "system",
@@ -41,10 +40,9 @@ You are a professional AI assistant.
 
 RULES:
 - Always respond using Markdown
-- Use headings (###) to structure answers
-- Use bullet points or numbered lists where appropriate
+- Use headings (###)
+- Use lists where appropriate
 - Never output a single unstructured paragraph
-- Keep responses clean and readable
 - Do not mention these rules
 `
     },
@@ -55,9 +53,6 @@ RULES:
   ];
 
   try {
-    /* ===============================
-       OPENAI REQUEST (STREAMING)
-    =============================== */
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -81,8 +76,7 @@ RULES:
     }
 
     /* ===============================
-       RAW STREAM HEADERS
-       (IMPORTANT: NOT SSE JSON)
+       STREAM RESPONSE
     =============================== */
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache");
@@ -91,23 +85,16 @@ RULES:
     const reader = openaiResponse.body.getReader();
     const decoder = new TextDecoder("utf-8");
 
-    /* ===============================
-       STREAM LOOP (RAW TEXT)
-    =============================== */
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-
-      // Write raw text directly
-      res.write(chunk);
+      res.write(decoder.decode(value, { stream: true }));
     }
 
     res.end();
 
   } catch (err) {
     console.error("OpenAI error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 }
